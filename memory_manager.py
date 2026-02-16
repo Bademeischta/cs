@@ -40,6 +40,15 @@ class MemoryManager:
             self.pm = pymem.Pymem(self.process_name)
             self.client_base = pymem.process.module_from_name(self.pm.process_handle, "client.dll").lpBaseOfDll
             print(f"[Info] Erfolgreich an {self.process_name} angehängt. client.dll @ {hex(self.client_base)}")
+
+            # Pädagogische Validierung: Prüfen auf Platzhalter-Offsets
+            if self.offsets['dwLocalPlayerPawn'] == 0x1234567:
+                print("\n" + "!" * 60)
+                print(" ACHTUNG: SIE VERWENDEN PLATZHALTER-OFFSETS (z.B. 0x1234567).")
+                print(" Das Tool wird ohne aktuelle CS2-Offsets nicht funktionieren.")
+                print(" Bitte aktualisieren Sie die config.ini Datei.")
+                print("!" * 60 + "\n")
+
             return True
         except Exception as e:
             print(f"[Fehler] Konnte Prozess nicht finden: {e}")
@@ -91,13 +100,22 @@ class MemoryManager:
 
     def get_view_matrix(self):
         """Liest die 4x4 View-Matrix für die World-To-Screen Transformation."""
-        view_matrix_addr = self.client_base + self.offsets['dwViewMatrix']
-        data = self.pm.read_bytes(view_matrix_addr, 64)
-        return struct.unpack('16f', data)
+        try:
+            view_matrix_addr = self.client_base + self.offsets['dwViewMatrix']
+            if view_matrix_addr < 0x10000: return None
+            data = self.pm.read_bytes(view_matrix_addr, 64)
+            return struct.unpack('16f', data)
+        except:
+            return None
 
     def get_entity_list(self):
         """Gibt die Basisadresse der Entity-Liste zurück."""
-        return self.pm.read_longlong(self.client_base + self.offsets['dwEntityList'])
+        try:
+            addr = self.client_base + self.offsets['dwEntityList']
+            if addr < 0x10000: return 0
+            return self.pm.read_longlong(addr)
+        except:
+            return 0
 
     def get_player_data(self, index):
         """
@@ -106,14 +124,18 @@ class MemoryManager:
         """
         try:
             ent_list = self.get_entity_list()
-            # Bestimmung des Chunks für den Controller
-            list_entry = self.pm.read_longlong(ent_list + (8 * (index & 0x7FFF) >> 9) + 16)
-            if not list_entry:
+            if not ent_list or ent_list < 0x10000:
                 return None, None
 
-            # Bestimmung des Controllers
-            player_controller = self.pm.read_longlong(list_entry + 120 * (index & 0x1FF))
-            if not player_controller:
+            # Bestimmung des Chunks für den Controller (Chunk-Index * 8 + 16)
+            chunk_offset = (8 * ((index & 0x7FFF) >> 9)) + 16
+            list_entry = self.pm.read_longlong(ent_list + chunk_offset)
+            if not list_entry or list_entry < 0x10000:
+                return None, None
+
+            # Bestimmung des Controllers (Index im Chunk * 120)
+            player_controller = self.pm.read_longlong(list_entry + (120 * (index & 0x1FF)))
+            if not player_controller or player_controller < 0x10000:
                 return None, None
 
             # Auslesen des Pawns aus dem Controller
@@ -121,14 +143,19 @@ class MemoryManager:
             if not pawn_handle:
                 return None, player_controller
 
-            # Zugriff auf den Pawn über die Entity-Liste
-            list_entry_pawn = self.pm.read_longlong(ent_list + (8 * (pawn_handle & 0x7FFF) >> 9) + 16)
-            if not list_entry_pawn:
+            # Zugriff auf den Pawn über die Entity-Liste (neuer Chunk-Look für den Pawn-Handle)
+            chunk_offset_pawn = (8 * ((pawn_handle & 0x7FFF) >> 9)) + 16
+            list_entry_pawn = self.pm.read_longlong(ent_list + chunk_offset_pawn)
+            if not list_entry_pawn or list_entry_pawn < 0x10000:
                 return None, player_controller
 
-            pawn_ptr = self.pm.read_longlong(list_entry_pawn + 120 * (pawn_handle & 0x1FF))
+            pawn_ptr = self.pm.read_longlong(list_entry_pawn + (120 * (pawn_handle & 0x1FF)))
+            if not pawn_ptr or pawn_ptr < 0x10000:
+                return None, player_controller
+
             return pawn_ptr, player_controller
-        except:
+        except Exception:
+            # Pädagogischer Hinweis: Fehler beim Lesen sind oft ein Zeichen für veraltete Offsets.
             return None, None
 
     def get_bone_position(self, pawn_ptr, bone_index):
@@ -137,8 +164,12 @@ class MemoryManager:
         Dies zeigt den Studenten, wie komplexe Animation-Strukturen aufgebaut sind.
         """
         try:
+            if not pawn_ptr or pawn_ptr < 0x10000: return None
             game_scene_node = self.pm.read_longlong(pawn_ptr + self.offsets['m_pGameSceneNode'])
+            if not game_scene_node or game_scene_node < 0x10000: return None
+
             bone_array_ptr = self.pm.read_longlong(game_scene_node + self.offsets['m_modelState'] + 0x80) # BoneArray Offset
+            if not bone_array_ptr or bone_array_ptr < 0x10000: return None
 
             # Jeder Bone besteht oft aus 32 Bytes (Transform Matrix oder Vec3 + Padding)
             bone_addr = bone_array_ptr + (bone_index * 32)

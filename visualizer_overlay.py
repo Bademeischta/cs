@@ -24,7 +24,7 @@ class VisualizerOverlay:
                             height=self.height,
                             always_on_top=True,
                             decorated=False,
-                            clear_color=[0, 0, 0, 0])
+                            clear_color=[0, 0, 0, 0]) # Alpha 0 für Transparenz
 
         # Erstellung des Zeichen-Fensters
         with dpg.window(label="Canvas", width=self.width, height=self.height, no_title_bar=True, no_resize=True, no_move=True, no_background=True) as self.canvas:
@@ -38,7 +38,16 @@ class VisualizerOverlay:
 
     def _setup_transparency(self):
         """Konfiguriert das Fenster so, dass es transparent und nicht interaktiv ist."""
-        hwnd = win32gui.FindWindow(None, "EGMV Overlay")
+        # Warten, bis das Fenster tatsächlich erstellt wurde
+        hwnd = 0
+        for _ in range(10):
+            hwnd = win32gui.FindWindow(None, "EGMV Overlay")
+            if hwnd: break
+            time.sleep(0.1)
+
+        if not hwnd:
+            print("[Fehler] Overlay-Fenster konnte nicht gefunden werden.")
+            return
 
         # Erweiterten Fensterstil setzen: Layered & Transparent (Click-Through)
         ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
@@ -46,6 +55,9 @@ class VisualizerOverlay:
 
         # Schwarz (0,0,0) als transparente Farbe definieren
         win32gui.SetLayeredWindowAttributes(hwnd, win32api.RGB(0, 0, 0), 0, win32con.LWA_COLORKEY)
+        # Fenster in den Vordergrund bringen und Größe fixieren
+        win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST, 0, 0, 0, 0,
+                             win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_SHOWWINDOW)
 
     def draw_2d_box(self, top_left, bottom_right, color=[255, 255, 255, 255], thickness=1):
         dpg.draw_rectangle(top_left, bottom_right, color=color, thickness=thickness, parent="draw_node")
