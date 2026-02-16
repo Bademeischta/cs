@@ -127,23 +127,24 @@ class EGMV_App:
 
     def _run_simulation(self):
         """Erzeugt Dummy-Daten für Demonstrationszwecke."""
+        print("[Info] Simulations-Thread gestartet.")
         while self.running:
             temp_entities = []
             # Simulierte ViewMatrix (Identitätsmatrix für Einfachheit)
             sim_matrix = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
 
-            # Wir simulieren zwei Entities vor dem Betrachter
-            # Umgerechnet in Bildschirm-Raum via world_to_screen
+            # Wir simulieren zwei Entities vor dem Betrachter (NDC Bereich [-1, 1])
+            # Diese werden durch world_to_screen auf den Bildschirm projiziert.
             temp_entities.append({
-                'origin': [400, 300, 0],
-                'head_pos': [400, 300, 100],
+                'origin': [-0.3, 0.3, 0.5],    # Links oben
+                'head_pos': [-0.3, 0.3, 0.7],
                 'health': 85,
                 'name': "STUDENT_BOT_1",
                 'distance': 500
             })
             temp_entities.append({
-                'origin': [800, 600, 0],
-                'head_pos': [800, 600, 100],
+                'origin': [0.4, -0.2, 0.5],   # Rechts unten
+                'head_pos': [0.4, -0.2, 0.8],
                 'health': 42,
                 'name': "STUDENT_BOT_2",
                 'distance': 750
@@ -168,15 +169,24 @@ class EGMV_App:
             self.overlay.clear()
 
             # Pädagogischer Status-Indikator
-            self.overlay.draw_text([10, 10], "EGMV v1.1 - Status: Aktiv", color=[0, 255, 0, 255])
+            self.overlay.draw_text([10, 10], "EGMV v1.2 - Status: Aktiv", color=[0, 255, 0, 255])
+
+            # Test-Element zur Bestätigung des Renderings (unabhängig von World-To-Screen)
+            self.overlay.draw_2d_box([self.screen_width-150, 10], [self.screen_width-10, 60], color=[0, 255, 255, 100])
+            self.overlay.draw_text([self.screen_width-140, 25], "Rendering OK", color=[255, 255, 255, 255])
+
             if self.mem.offsets['dwLocalPlayerPawn'] == 0x1234567:
-                 self.overlay.draw_text([10, 30], "HINWEIS: Platzhalter-Offsets aktiv!", color=[255, 255, 0, 255])
+                 self.overlay.draw_text([10, 30], "HINWEIS: Simulations-Modus aktiv!", color=[255, 255, 0, 255])
 
             with self.lock:
                 data = self.entities_data
                 matrix = getattr(self, 'current_view_matrix', None)
 
             if matrix:
+                if len(data) == 0 and not self.mem.offsets['dwLocalPlayerPawn'] == 0x1234567:
+                    # Nur im echten Modus warnen, wenn keine Entities da sind
+                    pass
+
                 for ent in data:
                     # World-To-Screen Transformation für die Füße
                     screen_pos = self.math.world_to_screen(matrix, ent['origin'], self.screen_width, self.screen_height)
@@ -199,7 +209,13 @@ class EGMV_App:
 
                                 # 3D Box
                                 if self.mem.config['Visuals'].getboolean('Show3DBox'):
-                                    corners_3d = self.math.get_3d_box_corners(ent['origin'])
+                                    # Pädagogischer Hinweis: Im Simulationsmodus nutzen wir kleinere Boxen,
+                                    # da wir uns im NDC-Raum (-1 bis 1) befinden.
+                                    if ent['name'].startswith("STUDENT_BOT"):
+                                        corners_3d = self.math.get_3d_box_corners(ent['origin'], min_h=-0.05, max_h=0.2, width=0.1)
+                                    else:
+                                        corners_3d = self.math.get_3d_box_corners(ent['origin'])
+
                                     screen_corners = []
                                     for c in corners_3d:
                                         sc = self.math.world_to_screen(matrix, c, self.screen_width, self.screen_height)
