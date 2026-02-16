@@ -19,6 +19,8 @@ WIE MAN DAS TOOL STARTET:
    python main.py
 
 PÄDAGOGISCHE HINWEISE:
+- Simulation: Wenn kein Spiel gefunden wird oder Platzhalter-Offsets aktiv sind,
+  schaltet das Tool in den SIMULATIONS-MODUS und zeigt Test-Entities an.
 - Das Tool nutzt 'ReadProcessMemory' (via pymem). Es führt keine Schreiboperationen durch.
 - Die World-To-Screen Transformation nutzt die im Speicher liegende ViewMatrix.
 - Das Skeleton-Rendering (Bones) zeigt die hierarchische Struktur von Spielfiguren.
@@ -54,8 +56,16 @@ class EGMV_App:
         Separater Thread für das Auslesen des Speichers.
         Dies verhindert Ruckler in der UI und zeigt das Konzept von asynchronem Memory-Parsing.
         """
+        is_sim_mode = False
         if not self.mem.initialize():
-            self.running = False
+            print("[Info] Starte im SIMULATIONS-MODUS (kein Spiel gefunden).")
+            is_sim_mode = True
+        elif self.mem.offsets['dwLocalPlayerPawn'] == 0x1234567:
+            print("[Info] Starte im SIMULATIONS-MODUS (Platzhalter-Offsets erkannt).")
+            is_sim_mode = True
+
+        if is_sim_mode:
+            self._run_simulation()
             return
 
         while self.running:
@@ -67,6 +77,10 @@ class EGMV_App:
 
                 local_team = self.mem.read_int(local_player + self.mem.offsets['m_iTeamNum'])
                 view_matrix = self.mem.get_view_matrix()
+
+                if not view_matrix:
+                    time.sleep(1)
+                    continue
 
                 temp_entities = []
 
@@ -107,8 +121,39 @@ class EGMV_App:
                 self.mem.apply_stealth_delay()
 
             except Exception as e:
-                print(f"[Fehler im Reader] {e}")
-                time.sleep(1)
+                # Wir unterdrücken detaillierte Fehlermeldungen bei ungültigen Offsets,
+                # um die Konsole für die Studenten übersichtlich zu halten.
+                time.sleep(2)
+
+    def _run_simulation(self):
+        """Erzeugt Dummy-Daten für Demonstrationszwecke."""
+        while self.running:
+            temp_entities = []
+            # Simulierte ViewMatrix (Identitätsmatrix für Einfachheit)
+            sim_matrix = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]
+
+            # Wir simulieren zwei Entities vor dem Betrachter
+            # Umgerechnet in Bildschirm-Raum via world_to_screen
+            temp_entities.append({
+                'origin': [400, 300, 0],
+                'head_pos': [400, 300, 100],
+                'health': 85,
+                'name': "STUDENT_BOT_1",
+                'distance': 500
+            })
+            temp_entities.append({
+                'origin': [800, 600, 0],
+                'head_pos': [800, 600, 100],
+                'health': 42,
+                'name': "STUDENT_BOT_2",
+                'distance': 750
+            })
+
+            with self.lock:
+                self.entities_data = temp_entities
+                self.current_view_matrix = sim_matrix
+
+            time.sleep(0.1)
 
     def run(self):
         # Start des Speicher-Lese-Threads
@@ -121,6 +166,11 @@ class EGMV_App:
         # Haupt-UI-Loop
         while self.overlay.running and self.running:
             self.overlay.clear()
+
+            # Pädagogischer Status-Indikator
+            self.overlay.draw_text([10, 10], "EGMV v1.1 - Status: Aktiv", color=[0, 255, 0, 255])
+            if self.mem.offsets['dwLocalPlayerPawn'] == 0x1234567:
+                 self.overlay.draw_text([10, 30], "HINWEIS: Platzhalter-Offsets aktiv!", color=[255, 255, 0, 255])
 
             with self.lock:
                 data = self.entities_data
